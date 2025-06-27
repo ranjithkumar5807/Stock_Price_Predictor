@@ -1,0 +1,37 @@
+Linear Regression Model Performance:
+MAE: 984.420656800705
+RMSE: 1433.9859808281128
+MAPE: 0.9929891544213507%
+R²: 0.9965561536076527
+
+
+
+
+from sklearn.linear_model import LinearRegression
+
+# Prepare input features (e.g., previous days' closing prices)
+X_train_lr = np.array([train_data['close'].shift(i) for i in range(1, 21)]).T[20:]
+y_train_lr = train_data['close'][20:]
+
+X_test_lr = np.array([test_data['close'].shift(i) for i in range(1, 21)]).T[20:]
+y_test_lr = test_data['close'][20:]
+
+# Train Linear Regression Model
+lr_model = LinearRegression()
+lr_model.fit(X_train_lr, y_train_lr)
+
+# Predict using Linear Regression
+lr_predictions = lr_model.predict(X_test_lr)
+
+# Evaluate Performance
+lr_mae = mean_absolute_error(y_test_lr, lr_predictions)
+lr_rmse = np.sqrt(mean_squared_error(y_test_lr, lr_predictions))
+lr_mape = mean_absolute_percentage_error(y_test_lr, lr_predictions)
+lr_r2 = r2_score(y_test_lr, lr_predictions)
+
+print("Linear Regression Model Performance:")
+print(f'MAE: {lr_mae}')
+print(f'RMSE: {lr_rmse}')
+print(f'MAPE: {lr_mape * 100}%')
+print(f'R²: {lr_r2}\n')
+

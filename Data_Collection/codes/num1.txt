@@ -1,0 +1,96 @@
+import numpy as np
+import pandas as pd
+from sklearn.preprocessing import MinMaxScaler
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import GRU, Dense, Dropout
+from tensorflow.keras.callbacks import EarlyStopping
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+import matplotlib.pyplot as plt
+
+# Load your dataset
+data = pd.read_csv("https://raw.githubusercontent.com/ranjithkumar5807/stock-prediction/refs/heads/main/technical%20indicators/MRF.NS_indicators.csv")
+
+data=data.dropna()
+
+# Feature selection: Use the relevant columns for training
+features = ['close', 'high', 'low', 'open', 'volume', 'MACD', 'MACD_signal', 'RSI', 'VWAP',
+            'BB_upper', 'BB_middle', 'BB_lower', 'OBV', 'PSAR', 'ATR', 'EMA_5', 'EMA_8', 'EMA_13','SMA_5','SMA_8',"SMA_13"
+            'Tenkan-sen', 'Kijun-sen', 'Chikou Span', 'CCI']
+data = data[features]
+
+# Normalize the features using MinMaxScaler
+scaler = MinMaxScaler(feature_range=(0, 1))
+scaled_data = scaler.fit_transform(data)
+
+# Function to create sequences for LSTM
+def create_sequences(data, sequence_length):
+    sequences = []
+    labels = []
+    for i in range(len(data) - sequence_length):
+        sequences.append(data[i:i + sequence_length])
+        labels.append(data[i + sequence_length, 0])  # Predicting the close price
+    return np.array(sequences), np.array(labels)
+
+# Define sequence length (lookback period)
+sequence_length = 30  # Use the last 30 days of data to predict the next day
+X, y = create_sequences(scaled_data, sequence_length)
+
+# Split the data into training and testing sets (80% train, 20% test)
+train_size = int(len(X) * 0.8)
+X_train, X_test = X[:train_size], X[train_size:]
+y_train, y_test = y[:train_size], y[train_size:]
+
+# Build the GRU model
+model = Sequential()
+model.add(GRU(64, return_sequences=True, input_shape=(X_train.shape[1], X_train.shape[2])))
+model.add(Dropout(0.2))
+model.add(GRU(64, return_sequences=False))
+model.add(Dropout(0.2))
+model.add(Dense(1))  # Output layer for predicting the close price
+
+# Compile the model
+model.compile(optimizer='adam', loss='mean_squared_error')
+
+# Implement early stopping to avoid overfitting
+early_stop = EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True)
+
+# Train the model
+history = model.fit(X_train, y_train, epochs=20, batch_size=32, validation_data=(X_test, y_test),
+                    callbacks=[early_stop])
+
+# Predict on the test set
+predictions = model.predict(X_test)
+
+# Inverse transform the predictions and actual values
+predictions = scaler.inverse_transform(np.concatenate((predictions, np.zeros((predictions.shape[0], X_test.shape[2] - 1))), axis=1))[:, 0]
+y_test_actual = scaler.inverse_transform(np.concatenate((y_test.reshape(-1, 1), np.zeros((y_test.shape[0], X_test.shape[2] - 1))), axis=1))[:, 0]
+
+# Plot actual vs predicted values
+plt.figure(figsize=(12, 6))
+plt.plot(y_test_actual, label='Actual')
+plt.plot(predictions, label='Predicted')
+plt.title('Stock Price Prediction (LSTM)')
+plt.xlabel('Time')
+plt.ylabel('Stock Price')
+plt.legend()
+plt.show()
+
+# Evaluate the model using MAE, RMSE, MSE, and R²
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+
+mae = mean_absolute_error(y_test_actual, predictions)
+rmse = np.sqrt(mean_squared_error(y_test_actual, predictions))
+mse = mean_squared_error(y_test_actual, predictions)
+r2 = r2_score(y_test_actual, predictions)
+
+# Print evaluation metrics
+print(f'MAE: {mae}')
+print(f'RMSE: {rmse}')
+print(f'MSE: {mse}')
+print(f'R²: {r2}')
+
+
+MAE: 1667.7926764995736
+RMSE: 2258.2767810091896
+MSE: 5099814.019645226
+R²: 0.9912289918249444

@@ -1,0 +1,98 @@
+This MAE: 1671.5593388293935
+This RMSE: 2280.489645486288
+This R²: 0.9912901601330433
+
+import numpy as np
+import pandas as pd
+import tensorflow as tf
+from sklearn.preprocessing import MinMaxScaler
+from tensorflow.keras.models import Sequential
+from tensorflow.keras.layers import GRU, Bidirectional, Dense, Dropout
+from tensorflow.keras.optimizers import AdamW, RMSprop
+from tensorflow.keras.losses import Huber
+from tensorflow.keras.callbacks import EarlyStopping, ReduceLROnPlateau
+import matplotlib.pyplot as plt
+from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
+
+# Load the dataset
+data = pd.read_csv("https://raw.githubusercontent.com/ranjithkumar5807/stock-prediction/refs/heads/main/technical%20indicators/MRF.NS_indicators.csv")
+
+# Feature Engineering - Removing less significant features
+selected_features = ['close', 'high', 'low', 'open', 'volume', 'MACD', 'MACD_signal',
+                     'RSI', 'BB_upper', 'BB_middle', 'BB_lower', 'OBV', 'PSAR', 'ATR', 'EMA_8']
+
+# Adding Moving Averages
+data['SMA_10'] = data['close'].rolling(window=10).mean()
+# data['SMA_50'] = data['close'].rolling(window=50).mean()
+data['SMA_21'] = data['close'].rolling(window=21).mean()
+data = data[selected_features + ['SMA_10','SMA_21']].dropna()
+
+# Normalize the data
+scaler = MinMaxScaler(feature_range=(0, 1))
+scaled_data = scaler.fit_transform(data)
+
+# Function to create sequences for GRU
+def create_sequences(data, sequence_length):
+    X, y = [], []
+    for i in range(len(data) - sequence_length):
+        X.append(data[i:i + sequence_length])
+        y.append(data[i + sequence_length, 0])  # Predicting 'close' price
+    return np.array(X), np.array(y)
+
+# Define lookback period
+sequence_length = 20  # Optimized lookback window
+X, y = create_sequences(scaled_data, sequence_length)
+
+# Train-Test-Validation Split
+train_size = int(len(X) * 0.7)
+val_size = int(len(X) * 0.15)
+X_train, X_val, X_test = X[:train_size], X[train_size:train_size+val_size], X[train_size+val_size:]
+y_train, y_val, y_test = y[:train_size], y[train_size:train_size+val_size], y[train_size+val_size:]
+
+# Build the Bidirectional GRU Model
+model = Sequential()
+model.add(Bidirectional(GRU(128, return_sequences=True, input_shape=(X_train.shape[1], X_train.shape[2]))))
+model.add(Dropout(0.3))
+model.add(Bidirectional(GRU(256, return_sequences=False)))
+model.add(Dropout(0.3))
+model.add(Dense(1))  # Output Layer
+
+# Optimizer Selection
+optimizer = AdamW(learning_rate=0.001)   # Try AdamW as well
+
+# Compile the Model
+model.compile(optimizer=optimizer, loss=Huber(delta=1.0))  # Using Huber Loss
+
+# Callbacks
+early_stop = EarlyStopping(monitor='val_loss', patience=10, restore_best_weights=True)
+reduce_lr = ReduceLROnPlateau(monitor='val_loss', factor=0.5, patience=5)
+
+# Train the Model
+history = model.fit(X_train, y_train, epochs=100, batch_size=64, validation_data=(X_val, y_val),
+                    callbacks=[early_stop, reduce_lr])
+
+# Make Predictions
+predictions = model.predict(X_test)
+
+# Inverse Transform the Predictions
+predictions = scaler.inverse_transform(np.concatenate((predictions, np.zeros((predictions.shape[0], X_test.shape[2] - 1))), axis=1))[:, 0]
+y_test_actual = scaler.inverse_transform(np.concatenate((y_test.reshape(-1, 1), np.zeros((y_test.shape[0], X_test.shape[2] - 1))), axis=1))[:, 0]
+
+# Plot Actual vs Predicted Prices
+plt.figure(figsize=(12, 6))
+plt.plot(y_test_actual, label='Actual')
+plt.plot(predictions, label='Predicted')
+plt.title('Stock Price Prediction (Bidirectional GRU)')
+plt.xlabel('Time')
+plt.ylabel('Stock Price')
+plt.legend()
+plt.show()
+
+# Evaluate Performance
+mae = mean_absolute_error(y_test_actual, predictions)
+rmse = np.sqrt(mean_squared_error(y_test_actual, predictions))
+r2 = r2_score(y_test_actual, predictions)
+
+print(f'This MAE: {mae}')
+print(f'This RMSE: {rmse}')
+print(f'This R²: {r2}')
